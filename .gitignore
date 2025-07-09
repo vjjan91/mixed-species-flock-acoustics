@@ -8,6 +8,8 @@
 
 # ignore audio files
 *.wav
+results/birdNET-outputs
+results/birdNET-segments
 
 # User-specific files
 .Ruserdata
