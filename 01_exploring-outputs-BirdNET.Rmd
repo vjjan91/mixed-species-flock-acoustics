@@ -1,0 +1,131 @@
+---
+editor_options: 
+  chunk_output_type: console
+---
+
+# Exploring outputs from BirdNET  
+
+Please note that thresholds were previously set for the target list of species, following analysis that were carried out here: 
+https://vjjan91.github.io/paired-pointCount-acoustics/exploring-outputs-from-birdnet.html 
+
+In this script, we use previously set thresholds for a subset of species in our study.  
+
+## Install required libraries
+```{r}
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(data.table)
+library(extrafont)
+library(sf)
+library(raster)
+library(viridis) # for colorblind-friendly colors
+library(gridExtra) # for arranging multiple plots
+
+# for plotting
+library(scales)
+library(ggplot2)
+library(ggspatial)
+library(colorspace)
+library(scico)
+```
+
+## Loading the acoustic data and filtering outputs above a threshold  
+
+We are able to use previously set thresholds for all species, except the Gray-headed Canary-Flycatcher, Nilgiri Flycatcher or the Ashy Drongo. Excluding these three species, we created curated thresholds for each species above which the probability of detecting a species is at 0.95. For a few species for which the detector performed really well (proportion of true positives: false positives > 0.95), we set a random threshold value of 0.25 above which we expect the probability of species detected to be greater than or equal to 0.95. 
+```{r}
+## curate species thresholds
+threshold <- read.csv("results/curatedThresholds-species-list.csv")
+
+## load the BirdNET output file
+birdnet_results <- read.csv("results/birdNET-outputs/BirdNET_CombinedTable.csv")
+
+## filter species detections above the threshold we chose
+birdnet_subset <- birdnet_results %>%
+    inner_join(threshold, by = c("Common.name" = "species")) %>%
+    filter(Confidence >= threshold) %>%
+    mutate(filename_pattern = basename(File) %>% 
+                        sub(".*\\\\([0-9]{8}_[0-9]{4}_[A-Z0-9]+)\\.WAV", "\\1", .)) %>%
+  mutate(
+    date = as.Date(str_extract(filename_pattern, "\\d{8}"), format = "%Y%m%d"),
+    site_name = str_extract(filename_pattern, "^[A-Z]+"),
+    site_protocol_code = paste0(site_name, "_MSF")
+  )
+```
+
+## Including the Ashy Drongo
+
+The model did not perform well enough for us to set thresholds for the Ashy Drongo and all instances were manually verified. So we manually validated every single detection (n=1281) to ascertain true and false positives. Please see this document for information on the validation procedure: https://zenodo.org/records/8415090  
+
+```{r}
+# load the .txt file containing true and false positives
+ashy <- read.table("results/birdNET-segments/Ashy Drongo/ashy-drongo.selections.txt", sep = "\t", header = T)
+
+## cleaning up the data 
+ashy <- ashy %>%
+  mutate(
+    # extract confidence score
+    confidence = str_extract(Begin.File, "^\\d+\\.\\d+"),
+    
+    # extract site_name
+    site_name = str_extract(Begin.File, "[A-Z]+(?=_\\d{8})"),
+    
+    # extract date and format it
+    date = as.Date(str_extract(Begin.File, "\\d{8}"), format = "%Y%m%d"),
+    
+    # create filename_pattern
+    filename_pattern = str_extract(Begin.File, "[A-Z]+_\\d{8}_\\d{6}") %>% 
+      paste0(".WAV"),
+    
+    # create site_protocol_code
+    site_protocol_code = paste0(site_name, "_MSF")
+  )
+
+## filter only detections that are true positives and include scientific_name and common_name
+ashy <- ashy %>%
+  filter(Valid == 1) %>%
+  mutate(scientific_name = "Dicrurus leucophaeus") %>%
+  mutate(common_name = "Ashy Drongo")
+```
+
+## Curating the dataset with Ashy Drongo
+
+```{r}
+# add ashy drongo back to the BirdNET subset
+
+# clean up column names
+names(birdnet_subset)
+names(birdnet_subset) <- c("start_time","end_time", "scientific_name","common_name","confidence_score","filepath","threshold","filename","date","site_name","site_protocol_code")
+birdnet_subset <- birdnet_subset[,c(1:5,7:11)]
+
+names(ashy)
+names(ashy) <- c("selection","view","channel", "start_time","end_time", "low_freq", "high_freq", "filename_for_validation", "validity","confidence_score","site_name","date", "filename","site_protocol_code","scientific_name","common_name")
+ashy <- ashy[,c(4,5,10:16)]
+ashy$confidence_score <- as.numeric(ashy$confidence_score)
+
+## create a combined dataset
+datSubset <- bind_rows(birdnet_subset, ashy)
+
+## create a unique detection id and separate out time
+datSubset <- datSubset %>%
+  mutate(
+    # Extract time from filename (6 digits after the date)
+    time = str_extract(filename, "\\d{6}(?=\\.WAV)"),
+    
+    # Remove .WAV and create unique detection ID with start and end times
+    unique_detection_id = paste0(
+      confidence_score, "_",
+      site_name, "_",
+      format(date, "%Y%m%d"), "_",
+      time, "_",
+      sprintf("%.1fs", start_time), "_",
+      sprintf("%.1fs", end_time)
+    )
+  )
+
+## write to file
+write.csv(datSubset, "results/thresholded-acoustic-detections.csv", row.names = F)
+```
+
+
