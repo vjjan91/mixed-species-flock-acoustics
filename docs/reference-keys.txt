@@ -2,3 +2,8 @@ introduction
 attribution
 data-access
 data-processing
+exploring-outputs-from-birdnet
+install-required-libraries
+loading-the-acoustic-data-and-filtering-outputs-above-a-threshold
+including-the-ashy-drongo
+curating-the-dataset-with-ashy-drongo
