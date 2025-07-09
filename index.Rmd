@@ -21,7 +21,24 @@ github-repo: vjjan91/mixed-species-flock-acoustics
 
 # Introduction  
 
-This is the readable version that showcases analyses using BirdNET to carry out automated identification of bird species that participate in mixed-species flocks.     
+This is the readable version that showcases analyses using BirdNET to carry out automated identification of bird species that participate in mixed-species flocks. In this repository, we focus our analyses on thirteen species alone that are considered to be important species in a flock.    
+
+The list of 13 species include: 
+- Indian White-eye  
+- Greenish Warbler  
+- Orange Minivet  
+- Velvet-fronted Nuthatch  
+- Yellow-browed Bulbul  
+- Greater Racket-tailed Drongo  
+- Ashy Drongo  
+- Indian Yellow Tit  
+- Green Warbler  
+- Large-billed Leaf Warbler  
+- Gray-headed Canary-Flycatcher  
+- Nilgiri Flycatcher  
+- Brown-cheeked Fulvetta  
+
+Using BirdNET Analyzer GUI v2.0.0 and previously written code and steps [here](https://vjjan91.github.io/paired-pointCount-acoustics/exploring-outputs-from-birdnet.html), we use previously set thresholds (except for three species, the Gray-headed Canary-Flycatcher, Nilgiri Flycatcher and Ashy Drongo) to filter all audio detections with a probability of detection of 0.95. Upon running analyses, the model did not detect any instances of the Gray-headed Canary-Flycatcher or the Nilgiri Flycatcher. The model did not perform well enough for us to set thresholds for the Ashy Drongo and all instances were manually verified.   
 
 ## Attribution  
 
