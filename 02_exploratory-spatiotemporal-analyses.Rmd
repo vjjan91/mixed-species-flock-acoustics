@@ -1,0 +1,172 @@
+---
+editor_options: 
+  chunk_output_type: console
+---
+
+# Analysis of BirdNET detections
+
+In this script, we carry out spatial and temporal analyses of acoustic detections that were thresholded in the previous script. We work with a subset of detections that have a 95% probability of being a true positive.  
+
+## Load necessary libraries
+```{r}
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(data.table)
+library(extrafont)
+library(sf)
+library(raster)
+
+# for plotting
+library(scales)
+library(ggplot2)
+library(ggspatial)
+library(colorspace)
+library(scico)
+library(RColorBrewer)
+library(paletteer)
+```
+
+## Load acoustic data and metadata
+```{r}
+metadata <- read.csv("data/acoustic-metadata.csv")
+acoustic_data <- read.csv("results/thresholded-acoustic-detections.csv")
+```
+
+## Visualizing sampling effort
+
+How much acoustic data was collected? Using information on the first and last date of recorded acoustic data, we could visualize the total recorded days across months and sites.
+
+```{r}
+# ensure structure of dates in the metadata file is date
+metadata$first_file_date <- as.Date(metadata$first_file_date)
+metadata$last_file_date <- as.Date(metadata$last_file_date)
+
+# extract the common start and end dates across sites
+# this is to figure out what are periods across which all sites recorded simultaneously
+common_start_date <- max(metadata$first_file_date, na.rm = T)
+common_end_date <- min(metadata$last_file_date, na.rm = T)
+
+# visualization
+fig_samplingEffort <- metadata %>%
+  filter(!is.na(first_file_date)) %>%
+  ggplot(., aes(y = site_name)) +
+  geom_segment(aes(x = first_file_date, xend = last_file_date, yend = site_name), color = "#d95f02", size = 1) +
+  geom_vline(xintercept = as.numeric(common_start_date), linetype = "dotted", color = "#1b9e77", size = 0.8) +
+  geom_vline(xintercept = as.numeric(common_end_date), linetype = "dotted", color = "#1b9e77", size = 0.8) +
+  geom_text(aes(x = common_start_date, y = Inf, label = format(common_start_date, "%Y-%m-%d")), vjust = 2, hjust = 0.5, color = "black") +
+  geom_text(aes(x = common_end_date, y = Inf, label = format(common_end_date, "%Y-%m-%d")), vjust = 2, hjust = 0.5, color = "black") +
+  labs(title = "Sampling Effort",
+       x = "Acoustic Recording Dates",
+       y = "Site Name") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Century Gothic", size = 14, face = "bold"), plot.title = element_text(
+      family = "Century Gothic",
+      size = 15, face = "bold"
+    ),
+    plot.subtitle = element_text(
+      family = "Century Gothic",
+      size = 15, face = "bold", color = "#1b2838"
+    ),
+    axis.title = element_text(
+      family = "Century Gothic",
+      size = 18, face = "bold"
+    ),
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 10)
+  )
+
+ggsave(fig_samplingEffort, filename = "figs/fig_sampling_effort.png", width = 12, height = 7, device = png(), units = "in", dpi = 300)
+dev.off()
+
+## This visualization showed that all sites concurrently recorded data from 18th February 2024 to 13th March 2024
+```
+
+![Acoustic sampling effort shows that most days recorded a similar number of days with all sites concurrently recording data from 18th February 2024 to 13th March 2024](figs/fig_sampling_effort.png)
+
+## How much data was recorded at each site?
+
+Creating a bar plot with total number of days of recording at each site. Please refer to the metadata to ascertain the configuration and deployment details for the recorders. 
+```{r}
+## total number of recorded days
+metadata$total_days_recording <- as.numeric(metadata$last_file_date - metadata$first_file_date, na.rm = T)
+
+## visualization
+fig_totalRecordedDays <- metadata %>%
+  filter(!is.na(first_file_date)) %>%
+  ggplot(., aes(x = site_name, y = total_days_recording, fill = site_name)) +
+   geom_bar(stat = "identity", position = position_dodge(), fill = "#d95f02", alpha = 0.9) +
+  geom_text(aes(label = total_days_recording, hjust = "middle", vjust = -0.5),
+    position = position_dodge(), angle = 0, size = 5
+  ) +
+  theme_bw() +
+  labs(
+    x = "\nSite Names",
+    y = "Total Days of Audio Recording\n"
+  ) +
+  theme(
+    axis.title = element_text(
+      family = "Century Gothic",
+      size = 14, face = "bold"
+    ),
+    axis.text = element_text(family = "Century Gothic", size = 14),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    legend.position = "none"
+  )
+  
+ggsave(fig_totalRecordedDays, filename = "figs/fig_total_days_audioRecording.png", width = 12, height = 7, device = png(), units = "in", dpi = 300)
+dev.off()
+```
+
+![Most sites recorded a similar amount of data, around 30-32 days](figs/fig_total_days_audioRecording.png)
+## Detections by day over time 
+
+```{r}
+## run analysis for one species
+## let's select the Brown-cheeked Fulvetta
+
+fulvetta <- acoustic_data %>%
+  filter(common_name == "Brown-cheeked Fulvetta")
+
+# group detections by date and site_name
+fulvetta_detections <- fulvetta %>%
+  group_by(common_name, site_name, date) %>%
+  summarise(total_detections = n())
+
+# species name and change date structure
+name <- unique(fulvetta_detections$common_name)
+fulvetta_detections$date <- as.Date(fulvetta_detections$date)
+
+## visualization
+fig_fulvetta_detections <-  fulvetta_detections %>%
+  ggplot(., aes(x = date, y = site_name, fill = total_detections)) +
+  geom_tile(color = "black") + 
+    scale_fill_gradientn(colours = c(brewer.pal(9, "Reds"))) +
+  scale_x_date(date_labels = "%b %d %Y",
+               date_breaks = "5 days") + 
+  labs(title = paste0("Detections of ", 
+                      name, " across sites and days"),
+       x = "Date of acoustic detection",
+       y = "Site",
+       fill = "Acoustic detections") + 
+  theme_bw() +
+  theme(
+    axis.title = element_text(
+      family = "Century Gothic",
+      size = 14, face = "bold"
+    ),
+    axis.text = element_text(family = "Century Gothic", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"),
+  )
+
+ggsave(fig_fulvetta_detections, filename = "figs/fig_brownCheekedFulvetta_detections_by_day.png", width = 12, height = 7, device = png(), units = "in", dpi = 300)
+dev.off()
+```
+
+![Acoustic detections of Brown-cheeked Fulvetta across the recording period](figs/fig_brownCheekedFulvetta_detections_by_day.png)
+
+
+
