@@ -270,7 +270,7 @@ marks(fulvetta_spp) <- fulvetta_cumulative_detections$total_cumulative_detection
 
 weights <- fulvetta_spp$marks
 
-density_obj <- stars::st_as_stars(density(fulvetta_spp, dimyx = 300, weights = weights)) # adjust sigma accordingly
+density_obj <- stars::st_as_stars(density(fulvetta_spp, dimyx = c(500,500), weights = weights,                                        edge = TRUE)) # adjust sigma accordingly
 
 ## convert back to sf and change the CRS
 density_obj <- st_as_sf(density_obj) 
@@ -299,7 +299,6 @@ theme_bw() +
   labs(x = '',
        y = '',
        size = 'Acoustic detections', color = 'Acoustic detections', title = "Acoustic detections of the Brown-cheeked Fulvetta") +
-  theme_bw() +
   theme(
     plot.title = element_text(
       family = "Century Gothic",
@@ -315,6 +314,8 @@ theme_bw() +
     legend.text = element_text(family = "Century Gothic", size = 10), 
     panel.border = element_blank()   
     ) 
+
+fig_kdePlot_fulvetta
 
 ggsave(fig_kdePlot_fulvetta, filename = "figs/fig_brownCheekedFulvetta_kernelDensityMap.png", width = 12, height = 7, device = png(), units = "in", dpi = 300)
 dev.off()
