@@ -17,6 +17,10 @@ library(data.table)
 library(extrafont)
 library(sf)
 library(raster)
+library(mapedit)
+library(mapview)
+library(stars)
+library(spatstat)
 
 # for plotting
 library(scales)
@@ -167,6 +171,157 @@ dev.off()
 ```
 
 ![Acoustic detections of Brown-cheeked Fulvetta across the recording period](figs/fig_brownCheekedFulvetta_detections_by_day.png)
+
+## Bubble map of acoustic detections  
+
+We will visualize acoustic detections in space and time.
+```{r}
+## load spatial layers (note the commented out lines need to run only once/or replaced with actual shapefiles of Valparai)
+# wg <- st_read("data/spatial/WG.shp")
+# wg <- st_make_valid(wg)
+
+## exception: remove below code as it won't be required with actual shapefiles
+
+# bbox <- mapview(wg) %>%
+#  editMap()
+# valparai <- st_as_sf(bbox$finished) %>%
+#  `st_crs<-`(4326)
+
+# mapview(valparai)
+
+# save spatial file and reload later when needed
+# st_write(valparai, "data/spatial/valparai.shp",
+#         driver = "ESRI Shapefile")
+
+# load shapefiles
+valparai <- st_read("data/spatial/valparai.shp")
+
+## merge lat-long from metadata with the acoustic_data file
+acoustic_data <- left_join(acoustic_data[,-9], metadata[,c(1:4)])
+
+## convert to an sf object
+acoustic_data <- st_as_sf(acoustic_data, coords = c("longitude", "latitude"), crs = st_crs(valparai))
+
+## filter by species (Brown-cheeked Fulvetta)
+fulvetta <- acoustic_data %>%
+  filter(common_name == "Brown-cheeked Fulvetta")
+
+# group detections by date and site_name
+fulvetta_detections <- fulvetta %>%
+  group_by(common_name, site_name, date) %>%
+  summarise(total_detections = n())
+
+## visualization
+fig_fulvetta_bubbleMap <- ggplot(data = valparai) +
+  geom_sf(fill = NA, color = "black") +
+  scale_color_gradientn(colors = c(brewer.pal(5, "Reds")))+
+  geom_sf(data = fulvetta_detections, aes(size = total_detections, color = total_detections), shape = 21, fill = NA) +
+  geom_text(data = fulvetta_detections, aes(x = st_coordinates(fulvetta_detections)[, "X"], y = st_coordinates(fulvetta_detections)[, "Y"], label = site_name), vjust = -0.9, hjust = 0.5, size = 2.5,
+            family = "Century Gothic") +
+  scale_size_continuous(range = c(3, 20)) +
+  labs(x = '',
+       y = '',
+       size = 'Acoustic detections', color = 'Acoustic detections', title = "Acoustic detections of the Brown-cheeked Fulvetta") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(
+      family = "Century Gothic",
+      size = 14, face = "bold"
+    ),
+    axis.title = element_text(
+      family = "Century Gothic",
+      size = 14, face = "bold"
+    ),
+    axis.text = element_text(family = "Century Gothic", size = 12), 
+    legend.position = "right",
+    legend.title = element_text(family = "Century Gothic", size = 10, face = "bold"), 
+    legend.text = element_text(family = "Century Gothic", size = 10), 
+    panel.border = element_blank()   
+    )    
+
+ggsave(fig_fulvetta_bubbleMap, filename = "figs/fig_brownCheekedFulvetta_bubbleMap.png", width = 12, height = 7, device = png(), units = "in", dpi = 300)
+dev.off()
+```
+
+![A bubble map of acoustic detections of the fulvetta across Valparai](figs/fig_brownCheekedFulvetta_bubbleMap.png)
+
+## Creating a kernel density map of acoustic detections across Valparai for the Brown-cheeked Fulvetta
+
+```{r}
+# convert geographic coordinate system to projected coordinate system
+valparai <- valparai %>%
+  st_transform(32643)
+
+fulvetta_detections <- fulvetta_detections %>%
+  st_transform(32643)
+
+# further group and summarize detections by site_name
+fulvetta_cumulative_detections <- fulvetta_detections %>%
+  group_by(site_name) %>%
+  mutate(total_cumulative_detections = sum(total_detections)) %>%
+  distinct(common_name, site_name, total_cumulative_detections, geometry)
+
+## create spatial points object to create KDE plot
+fulvetta_spp <- as.ppp(st_coordinates(fulvetta_cumulative_detections), W = as.owin(valparai))
+
+marks(fulvetta_spp) <- fulvetta_cumulative_detections$total_cumulative_detections
+
+## create a stars object prior to plotting using sf & ggplot2 
+
+weights <- fulvetta_spp$marks
+
+density_obj <- stars::st_as_stars(density(fulvetta_spp, dimyx = 300, weights = weights)) # adjust sigma accordingly
+
+## convert back to sf and change the CRS
+density_obj <- st_as_sf(density_obj) 
+st_crs(density_obj) <- 32643
+
+density_obj <- st_intersection(density_obj, valparai) %>%
+  st_transform(4326)
+
+valparai <- valparai %>%
+  st_transform(4326)
+
+fulvetta_cumulative_detections <- fulvetta_cumulative_detections %>%
+  st_transform(4326)
+
+## visualization
+fig_kdePlot_fulvetta <- ggplot() +
+geom_sf(data = density_obj, aes(fill = v), color = NA) +
+geom_sf(data = valparai, fill = NA, color = "black", linewidth = 0.25) +
+  geom_sf(data = fulvetta_cumulative_detections, color = "darkgray", shape = 21, fill = "darkgray") +
+  geom_text(data = fulvetta_cumulative_detections, aes(x = st_coordinates(fulvetta_cumulative_detections)[, "X"], y = st_coordinates(fulvetta_cumulative_detections)[, "Y"], label = site_name), vjust = -0.9, hjust = 0.5, size = 2.5,
+            family = "Century Gothic", color = "darkgray")+
+scale_fill_viridis_c(option = "magma", 
+                     name = "Acoustic detections",
+                     breaks = c(min(density_obj$v), max(density_obj$v)),labels = c(min(weights), max(weights)))+
+theme_bw() +
+  labs(x = '',
+       y = '',
+       size = 'Acoustic detections', color = 'Acoustic detections', title = "Acoustic detections of the Brown-cheeked Fulvetta") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(
+      family = "Century Gothic",
+      size = 14, face = "bold"
+    ),
+    axis.title = element_text(
+      family = "Century Gothic",
+      size = 14, face = "bold"
+    ),
+    axis.text = element_text(family = "Century Gothic", size = 12), 
+    legend.position = "right",
+    legend.title = element_text(family = "Century Gothic", size = 10, face = "bold", margin = margin(b = 15)), 
+    legend.text = element_text(family = "Century Gothic", size = 10), 
+    panel.border = element_blank()   
+    ) 
+
+ggsave(fig_kdePlot_fulvetta, filename = "figs/fig_brownCheekedFulvetta_kernelDensityMap.png", width = 12, height = 7, device = png(), units = "in", dpi = 300)
+dev.off()
+```
+
+![A kernel density map of detections of the Brown-cheeked Fulvetta](figs/fig_brownCheekedFulvetta_kernelDensityMap.png)
+
 
 
 
